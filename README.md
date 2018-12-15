@@ -1,4 +1,4 @@
-# The RXJS ShareReplay Operator Doesn't Clear Its Replay Buffer When RefCount Reaches Zero
+# ShareReplay Doesn't Clear Its Replay Buffer
 
 [ShareReplay](https://www.learnrxjs.io/operators/multicasting/sharereplay.html) is an RXJS operator which is very useful for managing expensive [cold observable](https://blog.thoughtram.io/angular/2016/06/16/cold-vs-hot-observables.html) operations, sharing the source observable for concurrent subscribers, and replaying the result to subsequent subscribers without performing the operation again.  This isn't ShareReplay's only use-case, but that use-case was the inspiration for this blog post, so that's the use case that we'll be discussing here.  It works by:
 * Multicasting the source observable (thus making it hot) so that the operation is not duplicated for concurrent subscribers
