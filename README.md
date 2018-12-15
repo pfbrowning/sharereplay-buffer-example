@@ -1,6 +1,9 @@
-# The RXJS ShareReplay Operator Never Clears Its Buffer
+# The RXJS ShareReplay Operator Doesn't Clear Its Replay Buffer When RefCount Reaches Zero
 
-[ShareReplay](https://www.learnrxjs.io/operators/multicasting/sharereplay.html) is an RXJS operator which is very useful for managing expensive observable operations that you only want to perform once for the duration of the application, such as fetching global application data from an API backend.  It works by multicasting the observable so that the operation is not duplicated for concurrent subscribers and then storing the result in a [ReplaySubject](https://xgrommx.github.io/rx-book/content/subjects/replay_subject/index.html) in order to replay the result to future subscribers without having to perform the operation again.  It also uses [refCount](https://blog.angularindepth.com/rxjs-how-to-use-refcount-73a0c6619a4e) to disconnect from the source observable once the number of subscribers reaches zero.
+[ShareReplay](https://www.learnrxjs.io/operators/multicasting/sharereplay.html) is an RXJS operator which is very useful for managing expensive [cold observable](https://blog.thoughtram.io/angular/2016/06/16/cold-vs-hot-observables.html) operations, sharing the source observable for concurrent subscribers, and replaying the result to subsequent subscribers without performing the operation again.  This isn't ShareReplay's only use-case, but that use-case was the inspiration for this blog post, so that's the use case that we'll be discussing here.  It works by:
+* Multicasting the source observable (thus making it hot) so that the operation is not duplicated for concurrent subscribers
+* Storing the result in a [ReplaySubject](https://xgrommx.github.io/rx-book/content/subjects/replay_subject/index.html) in order to replay the result to future subscribers without having to perform the operation again.
+* Using [refCount](https://blog.angularindepth.com/rxjs-how-to-use-refcount-73a0c6619a4e) connect to the source observable on the first subscription and to disconnect once the number of subscribers reaches zero.
 
 One important thing to understand about ShareReplay, however, is that ShareReplay does not clear its underlying ReplaySubject (and, by extension, the previously emitted values in the buffer) when the subscriber count reaches zero.  I recently ran into some confusion about this due to conflicting information on the internet, so I'd like to clarify that here for anybody else who runs into the same issue.
 
@@ -8,10 +11,10 @@ One of the first few articles that I came across while learning about ShareRepla
 
 Upon further research I came across [this](https://github.com/ReactiveX/rxjs/issues/3336) issue on Github which discusses the operation of ShareReplay in depth and [this](https://github.com/ReactiveX/rxjs/issues/3336#issuecomment-404684615) comment in particular, which explains that the ReplaySubject is reused by design, and that if you want the buffer to be cleared when the subscriber count reaches zero "you need to pass a factory to multicast".  We can confirm this by reading the [ShareReplay source code](https://github.com/ReactiveX/rxjs/blob/master/src/internal/operators/shareReplay.ts): the underlying ReplaySubject is never actually cleared out or recreated after initial creation.  This is a critical detail.
 
-When storing fetched data in a buffer it's important to keep in mind how long you want that data to stay in your buffer, which is usually a function of how frequently the data changes and how important it is to have the current version of said data at any given time.
+When storing fetched data in a buffer it's important to keep in mind how long you want to keep previously-emitted values in a buffer, which is usually a function of how frequently the data changes and how important it is to have the current version of said data at any given time.
 
 # Examples Via Jasmine Tests
-Let's demonstrate the buffer lifetime of a ShareReplay and compare it with that of the aforementioned multicast factory alternative with a few Jasmine tests.  I've created a simple Angular app which consists of a single service which makes an HTTP request for a non-existent resource and a set of unit tests demonstrating the buffer and multicast functionality of ShareReplay and the aforementioned multicast-factory-based alternative.  You can view the full source of the service [here](https://github.com/pfbrowning/sharereplay-buffer-example/blob/master/src/app/services/dummy-http-request.service.ts) and the tests [here](https://github.com/pfbrowning/sharereplay-buffer-example/blob/master/src/app/services/dummy-http-request.service.spec.ts).
+Let's demonstrate the buffer lifetime of a ShareReplay and compare it with that of the aforementioned multicast factory alternative with a few Jasmine tests.  I've created a simple Angular app which consists of a single service which makes a simple HTTP request and a set of unit tests demonstrating the buffer and multicast functionality of ShareReplay and the aforementioned multicast-factory-based alternative.  You can view the full source of the service [here](https://github.com/pfbrowning/sharereplay-buffer-example/blob/master/src/app/services/dummy-http-request.service.ts) and the tests [here](https://github.com/pfbrowning/sharereplay-buffer-example/blob/master/src/app/services/dummy-http-request.service.spec.ts).
 
 ## Standard Case: Non-Buffered HTTP Request
 If buffering is not a concern and you don't expect multiple concurrent subscribers, then simply fetching your resource directly is probably sufficient.
@@ -57,7 +60,7 @@ httpTestingController.verify();
 });
 ```
 ## ShareReplay(1): Indefinite Buffering
-If you want to perform an operation only once and share the result to any concurrent or subsequent subscribers, then using a ShareReplay with a buffer size of 1 is your best bet.  Here we'll demonstrate that the ShareReplay buffer is not cleared when the number of subscribers reaches zero:
+If you want to perform an operation only once and share the result to any concurrent or subsequent subscribers, then using a ShareReplay with a buffer size of 1 is a good solution.  Here we'll demonstrate that the ShareReplay buffer is not cleared when the number of subscribers reaches zero:
 ```typescript
 it('should store the response in a buffer for subsequent subscribers when going through shareReplay, even after refCount reaches 0', () => {
 /* Create an observable which pipes the http request through a shareReplay with buffer size 1
@@ -115,7 +118,7 @@ httpTestingController.verify();
 });
 ```
 ## Multicasted ReplaySubject With RefCount: Buffer Clears When RefCount Reaches Zero
-If you want your buffer to automatically clear itself after all subscribers have disconnected, then this is the way to go.
+If you want your buffer to automatically clear itself after all subscribers have disconnected, then this is a better fit.
 ```typescript
 it('should not reuse the buffer upon refCount reaching zero when using a multicast factory', () => {
     /* Create an observable which pipes the http request through a multicast factory which creates a ReplaySubject
